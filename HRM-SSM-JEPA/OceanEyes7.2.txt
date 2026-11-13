@@ -1,0 +1,70 @@
+====================================================================================================
+      MASTER ARCHITECTURE MAP v7.2: HOW YOUR AI READS, REMEMBERS, THINKS, AND SPEAKS
+====================================================================================================
+
+  [INPUT 1: STORY / CHAT TEXT]                           [INPUT 2: IMAGE PATCHES]
+  "Once upon a time, Lily found a shiny key..."          16 Spatial Regions from Photo (or Null-Vis)
+                 │                                                      │
+                 ▼                                                      ▼
+┌─────────────────────────────────────────────┐        ┌───────────────────────────────────────────┐
+│ STAGE 1A: THE EYES (TextIdeaSlicer)         │        │ STAGE 1B: THE VISUAL EYES (VisualSlicer)  │
+│  • Engine: Gated DeltaNet 2D Matrix SSM     │        │  • Engine: Gated DeltaNet 2D Matrix SSM   │
+│  • Reads words left-to-right; ERASES old    │        │  • Scans 16 image regions and groups      │
+│    info on its 2D whiteboard before writing │        │    them into 4 Visual Idea Slots.         │
+│  • Cuts stream into 16-word "Idea Chunks"   │        └─────────────────────┬─────────────────────┘
+└────────┬───────────────────────┬────────────┘                              │
+         │ (Idea Chunks)         │ (Individual Word Vectors)                 │ (Visual Ideas)
+         ▼                       ▼                                           ▼
+┌─────────────────────┐ ┌─────────────────────────────────────────┐ ┌──────────────────────────────┐
+│ STAGE 2A: THE GIST  │ │ STAGE 2B: THE HIGHLIGHTER PEN           │ │ MULTIMODAL FUSION            │
+│ (Meaning Encoder)   │ │ (Span-Coupled Fact Extractor)           │ │  • Merges Text Gist + Visual │
+│  • Splits meaning   │ │  • Spots rare/important words (names,   │ │    Gist onto shared 16-D     │
+│    into 2 parts:    │ │    numbers, objects) via local anomaly. │ │    Unit Spheres:             │
+│    1. World State   │ │  • 3-Word Span Filter (`Conv1d k=3`)    │ │    s_multi = [State || Style]│
+│       (What happens)│ │    keeps multi-word names together      │ └──────────────┬───────────────┘
+│    2. Style/Domain  │ │    (e.g., "Albert" + "Einstein").       │                │
+│       (How it's said│ │  • Saves exact Word IDs in time order.  │                │
+└────────┬────────────┘ └────────────────────┬────────────────────┘                │
+         └─────────────────┬─────────────────┼─────────────────────────────────────┘
+                           │                 │
+                           ▼                 ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 3: THE FILING CABINET & LIBRARIAN (EpisodicMemoryAndRouter)                                │
+│  • Filing Cabinet: Stores a "Sticky Note" for every past turn: {Gist Vector + Highlighted Words} │
+│  • The Librarian (Router): Searches strictly PAST turns (0..i-1) and pulls ONLY the Top-2 most   │
+│    relevant Sticky Notes. (Keeps memory speed O(1) constant even if history is 10,000 words!)    │
+└────────────────────────────────────────────┬─────────────────────────────────────────────────────┘
+                                             │
+                                             ▼
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
+│ STAGE 4: THE TWO-SPEED BRAIN (HRMCore: Slow H-Director + Fast L_think Loop + ACT)                │
+│                                                                                                  │
+│   ┌──────────────────────────────────────────────────────────────────────────────────────────┐   │
+│   │ 1. SLOW H-MODULE ("The Director"): Steps ONCE per turn to track the overall story arc.   │   │
+│   └────────────────────────────────────────┬─────────────────────────────────────────────────┘   │
+│                                            ▼                                                     │
+│   ┌──────────────────────────────────────────────────────────────────────────────────────────┐   │
+│   │ 2. FAST L_think LOOP ("The Thinker"): Loops silently in the brain (up to 5 ticks):       │   │
+│   │    • Tick τ: Asks Librarian for Sticky Notes ──► Updates 2D DeltaNet Whiteboard          │   │
+│   │    • Dynamic Halting (ACT): "Am I ready to speak?"                                       │   │
+│   │      - Easy background sentence ──► Halts in ~2 ticks!                                   │   │
+│   │      - Complex question/plot    ──► Ponders for ~4.5 ticks!                              │   │
+│   └────────────────────────────────────────┬─────────────────────────────────────────────────┘   │
+│                                            ▼                                                     │
+│   3. THE 3-STAGE STORY PLANNER (Multi-Horizon JEPA):                                             │
+│      Outputs a 3-part mental outline for the next sentence:                                      │
+│      • ŝ_begin (How to start)  • ŝ_mid (What happens in the middle)  • ŝ_end (How to end)        │
+└──────────────────┬─────────────────────────────────────────────────────────┬─────────────────────┘
+                   │                                                         │
+                   ▼ (During Training Only)                                  ▼ (Active Workspace)
+┌─────────────────────────────────────────────┐   ┌────────────────────────────────────────────────┐
+│ STAGE 5: THE WORLD-MODEL TEACHER (JEPA)     │   │ STAGE 6: THE MOUTH & COPY SWITCH (L_translate) │
+│  • EMA Target Encoder reads the real next   │   │  • Looks at the "Desk" (O(1) Workspace):       │
+│    sentence's Beginning, Middle, & End.     │   │    [Overall Thought | 3-Stage Plan | Retrieved │
+│  • Contrastive InfoNCE Loss forces the      │   │     Sticky Notes | Visual Slots | Last Turn]   │
+│    Brain's 3-Stage Plan to match reality    │   │  • Speaks 1 word at a time using 2 tools:      │
+│    without memorizing exact words!          │   │    1. Normal Vocab Head (50,257 words)         │
+└─────────────────────────────────────────────┘   │    2. Pointer Copy Switch (`p_copy` ∈ 0..1):   │
+                                                  │       Flips ON to copy exact names/facts from  │
+                                                  │       Sticky Notes, then checks them off!      │
+                                                  └────────────────────────────────────────────────┘
